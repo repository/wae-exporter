@@ -166,14 +166,14 @@ describe("mapQueryResult", () => {
         type: "counter" as const,
         help: "requests",
         value: "req",
-        labels: { ep: "endpoint" },
+        labels: { endpoint: "ep" },
       },
       {
         name: "errs",
         type: "counter" as const,
         help: "errors",
         value: "err",
-        labels: { ep: "endpoint" },
+        labels: { endpoint: "ep" },
       },
     ]);
 
@@ -278,7 +278,7 @@ describe("mapQueryResult", () => {
         type: "histogram" as const,
         help: "h",
         buckets: { b_1: 1 },
-        labels: { ep: "endpoint" },
+        labels: { endpoint: "ep" },
       },
     ]);
 
@@ -286,5 +286,61 @@ describe("mapQueryResult", () => {
     expect(result[0].samples).toHaveLength(4);
     expect(result[0].samples[0].labels.endpoint).toBe("/a");
     expect(result[0].samples[2].labels.endpoint).toBe("/b");
+  });
+
+  it("supports static label values", () => {
+    const data = [{ count: "10" }];
+    const result = mapQueryResult(data, [
+      {
+        name: "m",
+        type: "gauge" as const,
+        help: "h",
+        value: "count",
+        labels: { region: { value: "us-west-1" }, env: { value: "prod" } },
+      },
+    ]);
+
+    expect(result[0].samples[0].labels).toEqual({ region: "us-west-1", env: "prod" });
+  });
+
+  it("supports computed label values", () => {
+    const data = [
+      { endpoint: "/api", bytes: 500 },
+      { endpoint: "/upload", bytes: 2_000_000 },
+    ];
+    const result = mapQueryResult(data, [
+      {
+        name: "m",
+        type: "gauge" as const,
+        help: "h",
+        value: "bytes",
+        labels: {
+          endpoint: "endpoint",
+          size: { fn: (row) => (Number(row.bytes) > 1_000_000 ? "large" : "small") },
+        },
+      },
+    ]);
+
+    expect(result[0].samples[0].labels).toEqual({ endpoint: "/api", size: "small" });
+    expect(result[0].samples[1].labels).toEqual({ endpoint: "/upload", size: "large" });
+  });
+
+  it("mixes column, static, and computed labels", () => {
+    const data = [{ ep: "/api", status: "200" }];
+    const result = mapQueryResult(data, [
+      {
+        name: "m",
+        type: "gauge" as const,
+        help: "h",
+        value: "status",
+        labels: {
+          endpoint: "ep",
+          region: { value: "eu" },
+          ok: { fn: (row) => (row.status === "200" ? "true" : "false") },
+        },
+      },
+    ]);
+
+    expect(result[0].samples[0].labels).toEqual({ endpoint: "/api", region: "eu", ok: "true" });
   });
 });

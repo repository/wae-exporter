@@ -1,19 +1,38 @@
+/**
+ * Defines where a label's value comes from.
+ *
+ * - `string` - column name shorthand: read the value from a SQL result column
+ * - `{ value: string }` - static: always use this fixed value
+ * - `{ fn: (row) => string }` - computed: derive the value from the full row
+ *
+ * @example "endpoint"
+ * @example { value: "us-west-1" }
+ * @example { fn: (row) => Number(row.bytes) > 1_000_000 ? "large" : "small" }
+ */
+export type LabelSource =
+  | string
+  | { value: string }
+  | { fn: (row: Record<string, unknown>) => string };
+
 interface BaseMetric {
   /** Prometheus metric name. Use snake_case with a prefix.
    * @example "myapp_http_requests_total"
    * @example "myapp_request_duration_seconds"
    */
   name: string;
-  /** Human-readable description shown in `# HELP` line.
+  /** Human-readable description shown in `# HELP` line. Omit to skip the HELP line.
    * @example "Total HTTP requests by endpoint"
    */
-  help: string;
-  /** Maps SQL result column names to Prometheus label names.
-   * Keys are column names from your SQL query, values are the Prometheus label names.
-   * Omit if the metric has no labels.
-   * @example { endpoint: "endpoint", region: "region" }
+  help?: string;
+  /** Maps Prometheus label names to their source.
+   *
+   * Keys are the label names that appear in the Prometheus output.
+   * Values define where the label value comes from: a SQL column name (string),
+   * a fixed value (`{ value }`), or a function (`{ fn }`).
+   *
+   * @example { endpoint: "endpoint", region: { value: "us-west-1" } }
    */
-  labels?: Record<string, string>;
+  labels?: Record<string, LabelSource>;
 }
 
 /**
@@ -25,7 +44,10 @@ interface BaseMetric {
  *   type: "counter",
  *   help: "Total HTTP requests by endpoint",
  *   value: "request_count",
- *   labels: { endpoint: "endpoint" },
+ *   labels: {
+ *     endpoint: "endpoint",
+ *     env: { value: "production" },
+ *   },
  * }
  */
 export interface ScalarMetric extends BaseMetric {

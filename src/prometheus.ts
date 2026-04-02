@@ -1,4 +1,6 @@
-import type { HistogramMetric, MetricDefinition, ScalarMetric } from "./config";
+import type { HistogramMetric, LabelSource, MetricDefinition, ScalarMetric } from "./config";
+
+export const META_PREFIX = "wae_exporter";
 
 export interface Sample {
   labels: Record<string, string>;
@@ -8,7 +10,7 @@ export interface Sample {
 export interface SerializedMetric {
   name: string;
   type: "counter" | "gauge" | "histogram";
-  help: string;
+  help?: string;
   samples: Sample[];
 }
 
@@ -44,7 +46,9 @@ export function formatMetrics(metrics: SerializedMetric[]): string {
   const lines: string[] = [];
 
   for (const metric of metrics) {
-    lines.push(`# HELP ${metric.name} ${escapeHelpText(metric.help)}`);
+    if (metric.help) {
+      lines.push(`# HELP ${metric.name} ${escapeHelpText(metric.help)}`);
+    }
     lines.push(`# TYPE ${metric.name} ${metric.type}`);
 
     if (metric.type === "histogram") {
@@ -68,15 +72,19 @@ export function formatMetrics(metrics: SerializedMetric[]): string {
   return lines.length > 0 ? lines.join("\n") + "\n" : "";
 }
 
-function resolveLabel(row: Row, col: string): string {
-  const raw = row[col];
-  return typeof raw === "string" ? raw : typeof raw === "number" ? raw.toString() : "";
+function resolveLabel(row: Row, source: LabelSource): string {
+  if (typeof source === "string") {
+    const raw = row[source];
+    return typeof raw === "string" ? raw : typeof raw === "number" ? raw.toString() : "";
+  }
+  if ("value" in source) return source.value;
+  return source.fn(row);
 }
 
-function resolveLabels(row: Row, labelEntries: [string, string][]): Record<string, string> {
+function resolveLabels(row: Row, labelEntries: [string, LabelSource][]): Record<string, string> {
   const labels: Record<string, string> = {};
-  for (const [sqlCol, promLabel] of labelEntries) {
-    labels[promLabel] = resolveLabel(row, sqlCol);
+  for (const [promLabel, source] of labelEntries) {
+    labels[promLabel] = resolveLabel(row, source);
   }
   return labels;
 }
@@ -87,7 +95,7 @@ function mapScalar(metric: ScalarMetric, data: Row[]): SerializedMetric {
 
   for (const row of data) {
     const value = Number(row[metric.value]);
-    if (Number.isNaN(value) && row[metric.value] !== null) continue;
+    if (Number.isNaN(value)) continue;
     samples.push({ labels: resolveLabels(row, labelEntries), value });
   }
 
@@ -146,4 +154,43 @@ export function mapQueryResult(data: Row[], metrics: MetricDefinition[]): Serial
     }
     return mapScalar(metric, data);
   });
+}
+
+export function scrapeMetrics(
+  cf: CfProperties<unknown> | undefined,
+  errors: number,
+  durationSeconds: number,
+  queryDuration: Sample[],
+  queryRows: Sample[],
+): SerializedMetric[] {
+  const labels: Record<string, string> = {};
+
+  if (cf?.colo && typeof cf.colo === "string") labels.colo = cf.colo;
+
+  return [
+    {
+      name: `${META_PREFIX}_scrape_errors`,
+      type: "gauge",
+      help: "Number of WAE queries that failed during this scrape",
+      samples: [{ labels, value: errors }],
+    },
+    {
+      name: `${META_PREFIX}_scrape_duration_seconds`,
+      type: "gauge",
+      help: "Time taken to complete the scrape",
+      samples: [{ labels, value: durationSeconds }],
+    },
+    {
+      name: `${META_PREFIX}_query_duration_seconds`,
+      type: "gauge",
+      help: "Time taken for each WAE query",
+      samples: queryDuration.map((s) => ({ ...s, labels: { ...labels, ...s.labels } })),
+    },
+    {
+      name: `${META_PREFIX}_query_rows`,
+      type: "gauge",
+      help: "Number of rows returned by each WAE query",
+      samples: queryRows.map((s) => ({ ...s, labels: { ...labels, ...s.labels } })),
+    },
+  ];
 }
