@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wae-exporter",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-02",
+  "observability": {
+    "enabled": true,
+  },
+  "upload_source_maps": true,
+  "compatibility_flags": ["nodejs_compat"],
+  "secrets": {
+    "required": ["WAE_API_TOKEN", "SCRAPE_TOKEN"],
+  },
+  "vars": {
+    "WAE_ACCOUNT_ID": "<PLACEHOLDER>",
+  },
+}
